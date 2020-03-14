@@ -13,6 +13,8 @@ function createTextElement(text) {
 }
 
 function createElement(type, props, ...children) {
+  console.log("CE", type);
+
   return {
     type,
     props: {
@@ -29,6 +31,8 @@ function createDom(fiber) {
     fiber.type === "TEXT_ELEMENT"
       ? document.createTextNode("")
       : document.createElement(fiber.type);
+
+  console.log("CE", dom);
 
   updateDom(dom, {}, fiber.props);
 
@@ -88,20 +92,34 @@ function commitWork(fiber) {
     return;
   }
 
-  const domParent = fiber.parent.dom;
+  let domParentFiber = fiber.parent;
+  while (!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent;
+  }
+  const domParent = domParentFiber.dom;
+
   if (fiber.effectTag === "PLACEMENT" && fiber.dom != null) {
     domParent.appendChild(fiber.dom);
   } else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
     updateDom(fiber.dom, fiber.alternate.props, fiber.props);
   } else if (fiber.effectTag === "DELETION") {
-    domParent.removeChildren(fiber.dom);
+    commitDeletion(fiber, domParent);
   }
 
   commitWork(fiber.child);
   commitWork(fiber.sibling);
 }
 
+function commitDeletion(fiber, domParent) {
+  if (fiber.dom) {
+    domParent.removeChildren(fiber.dom);
+  } else {
+    commitDeletion(fiber.child, domParent);
+  }
+}
+
 function render(element, container) {
+  console.log("R", element, container);
   wipRoot = {
     dom: container,
     props: {
@@ -135,12 +153,13 @@ function workLoop(deadline) {
 requestIdleCallback(workLoop);
 
 function performUnitOfWork(fiber) {
-  if (!fiber.dom) {
-    fiber.dom = createDom(fiber);
-  }
+  const isFunctionComponent = fiber.type instanceof Function;
 
-  const elements = fiber.props.children;
-  reconcileChildren(fiber, elements);
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber);
+  } else {
+    updateHostComponent(fiber);
+  }
 
   if (fiber.child) {
     return fiber.child;
@@ -153,6 +172,18 @@ function performUnitOfWork(fiber) {
     }
     nextFiber = nextFiber.parent;
   }
+}
+
+function updateFunctionComponent(fiber) {
+  const children = [fiber.type(fiber.props)];
+  reconcileChildren(fiber, children);
+}
+
+function updateHostComponent(fiber) {
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+  reconcileChildren(fiber, fiber.props.children);
 }
 
 function reconcileChildren(wipFiber, elements) {
@@ -189,7 +220,8 @@ function reconcileChildren(wipFiber, elements) {
     }
 
     if (oldFiber && !sameType) {
-      (oldFiber.effectTag = "DELETION"), deletions.push(oldFiber);
+      oldFiber.effectTag = "DELETION";
+      deletions.push(oldFiber);
     }
 
     if (oldFiber) {
@@ -213,11 +245,10 @@ const Dact = {
 };
 
 /** @jsx Dact.createElement */
-const element = (
-  <div id="foo">
-    <h1>App</h1>
-  </div>
-);
+function App(props) {
+  return <h1>Hi {props.name}</h1>;
+}
 
+const element = <App name="dact" />;
 const container = document.getElementById("app");
 Dact.render(element, container);
