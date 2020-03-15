@@ -13,8 +13,6 @@ function createTextElement(text) {
 }
 
 function createElement(type, props, ...children) {
-  console.log("CE", type);
-
   return {
     type,
     props: {
@@ -31,8 +29,6 @@ function createDom(fiber) {
     fiber.type === "TEXT_ELEMENT"
       ? document.createTextNode("")
       : document.createElement(fiber.type);
-
-  console.log("CE", dom);
 
   updateDom(dom, {}, fiber.props);
 
@@ -119,7 +115,6 @@ function commitDeletion(fiber, domParent) {
 }
 
 function render(element, container) {
-  console.log("R", element, container);
   wipRoot = {
     dom: container,
     props: {
@@ -174,9 +169,47 @@ function performUnitOfWork(fiber) {
   }
 }
 
+let wipFiber = null;
+let hookIndex = null;
+
 function updateFunctionComponent(fiber) {
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
   const children = [fiber.type(fiber.props)];
   reconcileChildren(fiber, children);
+}
+
+function useState(initial) {
+  const oldHook =
+    wipFiber.alternate &&
+    wipFiber.alternate.hooks &&
+    wipFiber.alternate.hooks[hookIndex];
+
+  const hook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: []
+  };
+
+  const actions = oldHook ? oldHook.queue : [];
+  actions.forEach(action => {
+    hook.state = action(hook.state);
+  });
+
+  const setState = action => {
+    hook.queue.push(action);
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot
+    };
+    nextUnitOfWork = wipRoot;
+    deletions = [];
+  };
+
+  wipFiber.hooks.push(hook);
+  hookIndex++;
+  return [hook.state, setState];
 }
 
 function updateHostComponent(fiber) {
@@ -241,14 +274,24 @@ function reconcileChildren(wipFiber, elements) {
 
 const Dact = {
   createElement,
-  render
+  render,
+  useState
 };
 
 /** @jsx Dact.createElement */
-function App(props) {
-  return <h1>Hi {props.name}</h1>;
-}
+const Counter = props => {
+  const [count, setCount] = Dact.useState(0);
 
-const element = <App name="dact" />;
+  return (
+    <div id="counter">
+      <h1>Count: {count}</h1>
+      <button onClick={() => setCount(c => c + 1)}> Increment +</button>
+      <button onClick={() => setCount(c => c - 1)}> Decrease -</button>
+      <button onClick={() => setCount(c => 0)}> Reset </button>
+    </div>
+  );
+};
+
+const element = <Counter />;
 const container = document.getElementById("app");
 Dact.render(element, container);
